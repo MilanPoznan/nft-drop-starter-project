@@ -13,7 +13,9 @@ import {
   getNetworkToken,
   CIVIC
 } from './helpers';
+
 import CountdownTimer from '../CountdownTimer';
+
 
 const { SystemProgram } = web3;
 const opts = {
@@ -95,10 +97,18 @@ const CandyMachine = ({ walletAddress }) => {
   const mintToken = async () => {
     const mint = web3.Keypair.generate();
 
+    //Here we're creating an account for our NFT.
+    //  In Solana, programs are stateless which is very different from Ethereum where contracts hold state
     const userTokenAccountAddress = (
       await getAtaForMint(mint.publicKey, walletAddress.publicKey)
     )[0];
 
+
+    /**
+     * Here's are all the params candy machine needs to mint the NFT. 
+     * It needs everything from userPayingAccountAddress (which is the person paying + receiving for the NFT) 
+     * to the mint which is account address of the NFT we'll be minting.
+     */
     const userPayingAccountAddress = candyMachine.state.tokenMint
       ? (await getAtaForMint(candyMachine.state.tokenMint, walletAddress.publicKey))[0]
       : walletAddress.publicKey;
@@ -107,6 +117,7 @@ const CandyMachine = ({ walletAddress }) => {
     const remainingAccounts = [];
     const signers = [mint];
     const cleanupInstructions = [];
+
     const instructions = [
       web3.SystemProgram.createAccount({
         fromPubkey: walletAddress.publicKey,
@@ -141,6 +152,7 @@ const CandyMachine = ({ walletAddress }) => {
       ),
     ];
 
+    //Here, we're checking if the Candy machine is using a captcha to prevent bots (gatekeeper)
     if (candyMachine.state.gatekeeper) {
       remainingAccounts.push({
         pubkey: (
@@ -169,11 +181,12 @@ const CandyMachine = ({ walletAddress }) => {
         });
       }
     }
+
+    // if there is a whitelist setup, or if the mint is token gated
     if (candyMachine.state.whitelistMintSettings) {
       const mint = new web3.PublicKey(
         candyMachine.state.whitelistMintSettings.mint,
       );
-
       const whitelistToken = (await getAtaForMint(mint, walletAddress.publicKey))[0];
       remainingAccounts.push({
         pubkey: whitelistToken,
@@ -288,6 +301,10 @@ const CandyMachine = ({ walletAddress }) => {
       }),
     );
 
+    /**
+     * We use a provider, our wallet, all our instructions, and then call sendTransactions which is a function that talks to the blockchain. 
+     * This is the magic line where we actually hit our candy machine and tell it to mint our NFT.
+     */
     try {
       return (
         await sendTransactions(
@@ -355,6 +372,36 @@ const CandyMachine = ({ walletAddress }) => {
 
     const goLiveDateTimeString = `${new Date(goLiveData * 1000).toGMTString()}`
 
+
+
+    setCandyMachine({
+      id: process.env.REACT_APP_CANDY_MACHINE_ID,
+      program,
+      state: {
+        itemsAvailable,
+        itemsRedeemed,
+        itemsRemaining,
+        goLiveData,
+        goLiveDateTimeString,
+        isSoldOut: itemsRemaining === 0,
+        isActive: (presale ||
+          candyMachine.data.goLiveDate.toNumber() < new Date().getTime() / 1000) &&
+          (candyMachine.endSettings
+            ? candyMachine.endSettings.endSettingType.date
+              ? candyMachine.endSettings.number.toNumber() > new Date().getTime() / 1000
+              : itemsRedeemed < candyMachine.candyMachine.endSettings.number.toNumber()
+            : true),
+        isPresale: presale,
+        treasury: candyMachine.wallet,
+        tokenMint: candyMachine.tokenMint,
+        gatekeeper: candyMachine.data.gatekeeper,
+        endSettings: candyMachine.data.endSettings,
+        whitelistMintSettings: candyMachine.data.whitelistMintSettings,
+        hiddenSettings: candyMachine.data.hiddenSettings,
+        price: candyMachine.data.price,
+      }
+    })
+
     console.log({
       itemsAvailable,
       itemsRedeemed,
@@ -364,6 +411,8 @@ const CandyMachine = ({ walletAddress }) => {
       presale,
     });
   }
+
+
 
   function renderDropTimer() {
     const currentDate = new Date();
@@ -377,27 +426,28 @@ const CandyMachine = ({ walletAddress }) => {
 
   }
 
+
   useEffect(() => {
     getCandyMachineState()
   }, [])
-
-
   return (
-    candyMachine.state && (
+    candyMachine && candyMachine.state && (
       <div className="machine-container">
-        {/* Add this at the beginning of our component */}
         {renderDropTimer()}
         <p>{`Items Minted: ${candyMachine.state.itemsRedeemed} / ${candyMachine.state.itemsAvailable}`}</p>
-        <button
-          className="cta-button mint-button"
-          onClick={mintToken}
-        >
-          Mint NFT
-        </button>
-        {mints.length > 0 && renderMintedItems()}
-        {isLoadingMints && <p>LOADING MINTS...</p>}
+        {/* Check to see if these properties are equal! */}
+        {candyMachine.state.itemsRedeemed === candyMachine.state.itemsAvailable ? (
+          <p className="sub-text">Sold Out 🙊</p>
+        ) : (
+          <button
+            className="cta-button mint-button"
+            onClick={mintToken}
+          >
+            Mint NFT
+          </button>
+        )}
       </div>
-    );
+    ))
 };
 
 export default CandyMachine;
